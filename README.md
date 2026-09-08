@@ -157,6 +157,16 @@ data). They are stored as `EntitySection` rows and rendered under their table in
 the generated app. On the Merit report that is the difference between 75
 "records" and the 45 production rows that actually exist.
 
+A merged header gets the same treatment for the same reason.
+`MAKİNA KAPASİTESİ` merged across H:I is one column Excel draws wide, but the
+reader forward-fills merged ranges, so it arrived as two columns with the same
+header and the same values -- and everything downstream then worked to tell the
+halves apart: "Machine Capacity" and "Machine Capacity 1", two slugs, two
+columns of identical data to edit twice. `_collapse_merged_duplicates` folds
+adjacent same-header columns back together when their values are compatible,
+keeping the union: Merit's B:C merge is broken on exactly one row, and that
+value survives. Seven columns instead of nine.
+
 Sections are also the first thing the assistant can *create*: `add_section`,
 `edit_section` and `remove_section` are review-chat tools, so the page can grow
 a piece of UI that nobody wrote a component for. Re-analysis rebuilds sections
