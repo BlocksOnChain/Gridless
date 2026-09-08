@@ -1,0 +1,86 @@
+{
+  "entities": [
+    {
+      "sheet": "Customers",
+      "columns": {
+        "Customer ID": "integer",
+        "Full Name": "text",
+        "City": "text",
+        "Joined": "date",
+        "Active": "boolean",
+        "Lifetime Value": "numeric"
+      },
+      "primary_key": "Customer ID"
+    },
+    {
+      "sheet": "Policies",
+      "columns": {
+        "Policy No": "text",
+        "Customer ID": "integer",
+        "Product": "text",
+        "Premium": "numeric",
+        "Start Date": "date",
+        "Expires": "date",
+        "Status": "text",
+        "Internal Notes": "text"
+      },
+      "primary_key": "Policy No"
+    },
+    {
+      "sheet": "Reference",
+      "columns": {
+        "Product Code": "text",
+        "Product Name": "text",
+        "Base Rate": "numeric"
+      },
+      "primary_key": "Product Code"
+    },
+    {
+      "sheet": "Reference (2)",
+      "columns": {
+        "Branch Code": "text",
+        "Branch City": "text",
+        "Head Count": "integer"
+      },
+      "primary_key": "Branch Code"
+    },
+    {
+      "sheet": "By Region",
+      "columns": {
+        "Region": "text",
+        "Customer ID": "integer",
+        "Premium": "numeric"
+      },
+      "primary_key": null
+    }
+  ],
+  "relationships": [
+    {
+      "from_sheet": "Policies",
+      "from_column": "Customer ID",
+      "to_sheet": "Customers",
+      "to_column": "Customer ID"
+    },
+    {
+      "from_sheet": "By Region",
+      "from_column": "Customer ID",
+      "to_sheet": "Customers",
+      "to_column": "Customer ID"
+    },
+    {
+      "from_sheet": "Policies",
+      "from_column": "Product",
+      "to_sheet": "Reference",
+      "to_column": "Product Name"
+    }
+  ],
+  "hazards": [
+    {
+      "from_sheet": "Customers",
+      "from_column": "City",
+      "to_sheet": "Reference (2)",
+      "to_column": "Branch City",
+      "why": "Every customer city is also a branch city, but a customer's city is not a reference to a branch. Only naming can tell these apart -- this is what the LLM ranking pass is for."
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+# Secrets. backend/.env holds OPENROUTER_API_KEY.
+.env
+.env.*
+!.env.example
+
+.venv/
+__pycache__/
+*.py[cod]
+media/
+.pytest_cache/

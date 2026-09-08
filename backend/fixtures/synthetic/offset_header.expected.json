@@ -1,0 +1,17 @@
+{
+  "entities": [
+    {
+      "sheet": "Customers",
+      "columns": {
+        "Customer ID": "integer",
+        "Full Name": "text",
+        "City": "text",
+        "Joined": "date",
+        "Active": "boolean",
+        "Lifetime Value": "numeric"
+      },
+      "primary_key": "Customer ID"
+    }
+  ],
+  "relationships": []
+}

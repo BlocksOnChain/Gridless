@@ -1,0 +1,77 @@
+{
+  "entities": [
+    {
+      "sheet": "Customers",
+      "columns": {
+        "Customer ID": "integer",
+        "Full Name": "text",
+        "City": "text",
+        "Joined": "date",
+        "Active": "boolean",
+        "Lifetime Value": "numeric"
+      },
+      "primary_key": "Customer ID"
+    },
+    {
+      "sheet": "Policies",
+      "columns": {
+        "Policy No": "text",
+        "Customer ID": "integer",
+        "Product": "text",
+        "Premium": "numeric",
+        "Start Date": "date",
+        "Expires": "date",
+        "Status": "text"
+      },
+      "primary_key": "Policy No"
+    },
+    {
+      "sheet": "Claims",
+      "columns": {
+        "Claim Ref": "text",
+        "Policy No": "text",
+        "Reported At": "datetime",
+        "Amount": "numeric",
+        "Settled": "boolean"
+      },
+      "primary_key": "Claim Ref"
+    },
+    {
+      "sheet": "Status Codes",
+      "columns": {
+        "Status": "text",
+        "Meaning": "text"
+      },
+      "primary_key": "Status"
+    }
+  ],
+  "relationships": [
+    {
+      "from_sheet": "Policies",
+      "from_column": "Customer ID",
+      "to_sheet": "Customers",
+      "to_column": "Customer ID"
+    },
+    {
+      "from_sheet": "Claims",
+      "from_column": "Policy No",
+      "to_sheet": "Policies",
+      "to_column": "Policy No"
+    },
+    {
+      "from_sheet": "Policies",
+      "from_column": "Status",
+      "to_sheet": "Status Codes",
+      "to_column": "Status"
+    }
+  ],
+  "hazards": [
+    {
+      "from_sheet": "Policies",
+      "from_column": "Status",
+      "to_sheet": "Status Codes",
+      "to_column": "Meaning",
+      "why": "Meaning is unique and case-insensitively equal to Status, so value overlap alone cannot separate it from the real key."
+    }
+  ]
+}

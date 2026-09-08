@@ -1,0 +1,24 @@
+{
+  "entities": [
+    {
+      "sheet": "Reference",
+      "columns": {
+        "Product Code": "text",
+        "Product Name": "text",
+        "Base Rate": "numeric"
+      },
+      "primary_key": "Product Code"
+    },
+    {
+      "sheet": "Reference (2)",
+      "columns": {
+        "Branch Code": "text",
+        "Branch City": "text",
+        "Head Count": "integer",
+        "Opened": "date"
+      },
+      "primary_key": "Branch Code"
+    }
+  ],
+  "relationships": []
+}

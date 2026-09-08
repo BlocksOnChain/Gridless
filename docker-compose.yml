@@ -1,0 +1,128 @@
+# The whole of Gridless: database, API, web. One file, three services.
+#
+#   docker compose up --watch     everything, and your edits take effect live
+#   docker compose up             everything, without the file watching
+#
+# Start order is enforced by health, not by delay: the API waits until Postgres
+# answers `pg_isready`, and the web server waits until the API's own
+# /api/health reports the database reachable. So a cold start cannot serve a
+# page that fails on its first fetch.
+#
+# Both app services run in development mode, because the point of running this
+# locally is to change it: the API runs `runbolt --dev` (auto-reload) and the
+# web service runs `next dev` (HMR), with `develop.watch` below syncing edits
+# into the containers. The frontend image's *last* stage is the production
+# build, so `docker build ./frontend` still produces the built server -- this
+# file just targets the `dev` stage instead.
+#
+# Ports keep the README's choices -- Postgres on 5433, API on 8010 -- so the
+# host-side tooling (pytest, the e2e scripts, `uv run manage.py`) works against
+# these containers unchanged.
+name: gridless
+
+services:
+  db:
+    image: postgres:16
+    container_name: gridless-db
+    environment:
+      POSTGRES_DB: gridless
+      POSTGRES_USER: gridless
+      POSTGRES_PASSWORD: gridless
+    ports:
+      - "5433:5432"
+    volumes:
+      - gridless-pgdata:/var/lib/postgresql/data
+      # Creates the powerless role /api/ask executes generated SQL as. Runs
+      # only on first initialisation of an empty data directory.
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gridless -d gridless"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ./backend
+    container_name: gridless-api
+    # Appended to the entrypoint's `runbolt` call: reload on file change.
+    command: ["--dev"]
+    # OPENROUTER_API_KEY and friends come from the file at run time, so no
+    # secret is baked into the image. Optional: without a key the pipeline still
+    # runs, stages 3 and 4b are skipped, and the deterministic proposal stands.
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      # These override whatever backend/.env says: that file is written for a
+      # laptop talking to the published port, and in here the database is a
+      # service on the compose network.
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: gridless
+      POSTGRES_USER: gridless
+      POSTGRES_PASSWORD: gridless
+      # Off: with DEBUG on, every OpenRouter call logs its TLS handshake and
+      # every httpcore frame, which buries the request log you actually want.
+      DJANGO_DEBUG: "0"
+    ports:
+      - "8010:8010"
+    volumes:
+      # Uploaded workbooks. The commit stage re-reads the original file to load
+      # its rows, so this has to outlive the container.
+      - gridless-media:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+    develop:
+      watch:
+        - action: sync
+          path: ./backend
+          target: /app
+          ignore:
+            # The host's virtualenv is macOS/arm binaries and would shadow the
+            # container's Linux one. media/ is a volume, not source.
+            - .venv/
+            - media/
+            - __pycache__/
+            - .pytest_cache/
+        # A dependency change is not something a file sync can apply.
+        - action: rebuild
+          path: ./backend/pyproject.toml
+
+  web:
+    build:
+      context: ./frontend
+      target: dev
+    container_name: gridless-web
+    environment:
+      # Read at run time by `next dev` (a production build freezes NEXT_PUBLIC_*
+      # at build time instead -- see frontend/Dockerfile).
+      #
+      # The browser's URL, so it is the published API port. Not `api:8010`:
+      # that name does not resolve on the user's machine.
+      NEXT_PUBLIC_API_BASE: http://127.0.0.1:8010
+      NEXT_PUBLIC_ORG_ID: "1"
+      # ...and the URL this container uses when rendering on the server, where
+      # 127.0.0.1 would mean the web container itself. See frontend/lib/api.ts.
+      API_INTERNAL_BASE: http://api:8010
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    develop:
+      watch:
+        - action: sync
+          path: ./frontend
+          target: /app
+          ignore:
+            # Installed in the image; the host copy is the wrong platform and
+            # far too large to sync.
+            - node_modules/
+            - .next/
+        - action: rebuild
+          path: ./frontend/package.json
+
+volumes:
+  gridless-pgdata:
+  gridless-media:

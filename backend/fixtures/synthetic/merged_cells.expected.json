@@ -1,0 +1,15 @@
+{
+  "entities": [
+    {
+      "sheet": "Portfolio",
+      "columns": {
+        "Region": "text",
+        "Customer ID": "integer",
+        "Full Name": "text",
+        "Premium": "numeric"
+      },
+      "primary_key": "Customer ID"
+    }
+  ],
+  "relationships": []
+}

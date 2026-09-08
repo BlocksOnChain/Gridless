@@ -1,0 +1,15 @@
+{
+  "entities": [
+    {
+      "sheet": "Premiums",
+      "columns": {
+        "Policy No": "text",
+        "Customer ID": "integer",
+        "Premium": "numeric",
+        "Notes": "text"
+      },
+      "primary_key": "Policy No"
+    }
+  ],
+  "relationships": []
+}

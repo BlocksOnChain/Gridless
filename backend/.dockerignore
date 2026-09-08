@@ -1,0 +1,12 @@
+# Secrets never enter the image: backend/.env reaches the container through
+# Compose's env_file at run time, so a built image carries no API key.
+.env
+.env.*
+!.env.example
+
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+# Uploaded workbooks live in a volume, not in the image.
+media/
