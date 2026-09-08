@@ -17,6 +17,7 @@ from django.db import transaction
 from commitdata.ddl import unique_slug
 from core.models import (
     Cardinality,
+    EntitySection,
     InferredEntity,
     InferredField,
     InferredRelationship,
@@ -220,6 +221,7 @@ def _persist_table(
                 sample_values=column.sample_values,
                 position=position,
             )
+        _persist_sections(entity, table)
         return entity, created
 
     # Deterministic fallback: entity named after the sheet, fields after headers.
@@ -249,7 +251,30 @@ def _persist_table(
             sample_values=column.sample_values,
             position=position,
         )
+    _persist_sections(entity, table)
     return entity, created
+
+
+def _persist_sections(entity, table) -> int:
+    """Store the sheet's non-table blocks against the entity they belong with.
+
+    Detected in stage 1 (`ingest.structure.classify_block`); rendered under the
+    table in the generated app. Re-analysis replaces them, like everything else
+    the pipeline infers -- except that a section a person or the assistant
+    created is kept, because nothing in the sheet can imply it.
+    """
+    EntitySection.objects.filter(entity=entity, created_by_user=False).delete()
+    kept = entity.sections.filter(created_by_user=True).count()
+    for position, section in enumerate(getattr(table, "sections", []) or []):
+        EntitySection.objects.create(
+            entity=entity,
+            kind=section.kind,
+            title=section.title,
+            body=section.body,
+            source_range=section.source_range,
+            position=kept + position,
+        )
+    return len(getattr(table, "sections", []) or [])
 
 
 def _persist_relationships(
