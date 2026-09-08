@@ -1,0 +1,8 @@
+node_modules/
+.next/
+.env.local
+.env*.local
+# Playwright output: screenshots are build inputs to nothing.
+e2e/shots/
+e2e/hq/
+tsconfig.tsbuildinfo

@@ -28,6 +28,7 @@ from core.models import InferredEntity, InferredField, Workbook
 from core.review import (
     ReviewEditError,
     add_manual_field,
+    add_section as add_section_row,
     check_type,
     remove_field,
     set_primary_key,
@@ -50,9 +51,14 @@ Only ask a question back when the request could destroy the wrong thing.
 and say so plainly in your reply.
 4. Types must be one of: text, integer, numeric, date, datetime, boolean, json. \
 Money is numeric. A yes/no column is boolean. A count is integer.
-5. If the request is not about the tables and columns in front of you (for \
-example a question about the actual row values, which are not loaded yet), say \
-so in one sentence and suggest they commit first and use Ask.
+5. Not everything in a spreadsheet is a column. Notes, remarks, a totals line, \
+an instruction to whoever fills the sheet in -- those belong in a *section* \
+under the table, and `add_section` puts one there. Reach for it when the person \
+describes text that is about the table rather than a value in it. `edit_section` \
+and `remove_section` change the ones already there.
+6. If the request is not about the tables, columns and sections in front of you \
+(for example a question about the actual row values, which are not loaded yet), \
+say so in one sentence and suggest they commit first and use Ask.
 
 Reply in at most three short sentences, in the user's own language, plainly \
 describing what you changed. No lists of technical detail, no apologies."""
@@ -89,6 +95,12 @@ def describe_proposal(workbook: Workbook) -> str:
             if samples:
                 bits.append(f"e.g. {', '.join(samples)}")
             lines.append(" ".join(bits))
+        for section in entity.sections.all():
+            preview = section.body[:120].replace("\n", " ")
+            lines.append(
+                f'  [section: {section.kind}] "{section.title}"'
+                + (f" -- {preview}..." if preview else "")
+            )
     if not lines:
         return "This workbook has no tables."
     return "\n".join(lines)
@@ -260,6 +272,92 @@ def build_tools(workbook: Workbook, changes: list[str]):
             return f"ERROR: {exc}"
         return record(f'Removed "{label}" from "{entity.name}". Its data will not be imported.')
 
+    def _find_section(entity: InferredEntity, title: str):
+        wanted = (title or "").strip().lower()
+        sections = list(entity.sections.all())
+        for section in sections:
+            if section.title.lower() == wanted:
+                return section
+        for section in sections:
+            if wanted and wanted in section.title.lower():
+                return section
+        names = ", ".join(f'"{s.title}"' for s in sections) or "none"
+        return (
+            f"ERROR: {entity.name!r} has no section called {title!r}. "
+            f"Its sections are: {names}."
+        )
+
+    @tool
+    def add_section(table: str, title: str, text: str, kind: str = "note") -> str:
+        """Add a section of text under a table, for what is not a column.
+
+        Use for notes, remarks, instructions or a totals summary -- anything the
+        sheet says *about* the table rather than a value in it.
+
+        Args:
+            table: The table the section belongs under.
+            title: A short heading, e.g. "Notes" or "AÇIKLAMALAR".
+            text: The body text. Newlines separate paragraphs.
+            kind: "note" for remarks, "summary" for totals, "meta" for dates
+                and other header information.
+        """
+        entity = _find_entity(workbook, table)
+        if isinstance(entity, str):
+            return entity
+        try:
+            created = add_section_row(entity, title, text, kind)
+        except ReviewEditError as exc:
+            return f"ERROR: {exc}"
+        return record(
+            f'Added a {created.kind} section "{created.title}" under "{entity.name}".'
+        )
+
+    @tool
+    def edit_section(table: str, title: str, new_title: str = "", text: str = "") -> str:
+        """Change a section's heading or text.
+
+        Args:
+            table: The table the section is under.
+            title: The section's current heading.
+            new_title: A new heading, or "" to keep it.
+            text: New body text, or "" to keep it.
+        """
+        entity = _find_entity(workbook, table)
+        if isinstance(entity, str):
+            return entity
+        section = _find_section(entity, title)
+        if isinstance(section, str):
+            return section
+        changed = []
+        if new_title.strip():
+            section.title = new_title.strip()
+            changed.append("title")
+        if text.strip():
+            section.body = text.strip()
+            changed.append("body")
+        if not changed:
+            return "ERROR: give a new_title or some text to change."
+        section.save(update_fields=changed)
+        return record(f'Updated the section "{section.title}" under "{entity.name}".')
+
+    @tool
+    def remove_section(table: str, title: str) -> str:
+        """Remove a section from under a table.
+
+        Args:
+            table: The table the section is under.
+            title: The section's heading.
+        """
+        entity = _find_entity(workbook, table)
+        if isinstance(entity, str):
+            return entity
+        section = _find_section(entity, title)
+        if isinstance(section, str):
+            return section
+        label = section.title
+        section.delete()
+        return record(f'Removed the section "{label}" from "{entity.name}".')
+
     return [
         rename_table,
         rename_column,
@@ -267,6 +365,9 @@ def build_tools(workbook: Workbook, changes: list[str]):
         set_id_column,
         add_column,
         remove_column,
+        add_section,
+        edit_section,
+        remove_section,
     ]
 
 

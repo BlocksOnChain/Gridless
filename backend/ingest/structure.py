@@ -433,7 +433,72 @@ def _build_columns(
         columns.append(
             Column(header=name, letter=get_column_letter(c + 1), index=c, values=values)
         )
-    return columns, dropped
+
+    columns, merged = _collapse_merged_duplicates(columns)
+    return columns, dropped, merged
+
+
+def _collapse_merged_duplicates(columns: list[Column]) -> tuple[list[Column], int]:
+    """Fold a header merged across columns back into one column.
+
+    `MAKİNA KAPASİTESİ` merged across H:I is one column that Excel draws wide.
+    The reader forward-fills merged ranges, so it arrives as two columns with
+    the same header and, cell for cell, the same values -- and everything
+    downstream then works hard to tell them apart: the naming stage produces
+    "Machine Capacity" and "Machine Capacity 1", the slug generator produces
+    two slugs, and the committed table has two columns holding the same data
+    that a person has to edit twice.
+
+    Every condition is required. Identical values alone are a coincidence a
+    short table can produce (two flags that happen to be all "Yes"); the same
+    header on adjacent columns alone can be two real columns someone labelled
+    lazily. Together, on adjacent columns, they are a merge.
+
+    Values are compared loosely, because real merges are imperfect: on Merit's
+    sheet, B:C is merged on 44 rows and broken on one, where someone typed into
+    B alone. Requiring cell-for-cell equality would keep two columns because of
+    a single cell. So a blank on either side is treated as agreement, at least
+    one row must actually agree (two sparse columns that never overlap are not
+    evidence of anything), and the surviving column takes the union -- the
+    value from whichever side has it, so that one broken row is not lost.
+    """
+    if len(columns) < 2:
+        return columns, 0
+
+    kept: list[Column] = [columns[0]]
+    merged = 0
+    for column in columns[1:]:
+        previous = kept[-1]
+        if column.header.strip() != previous.header.strip():
+            kept.append(column)
+            continue
+        if column.index != previous.index + 1:
+            kept.append(column)
+            continue
+
+        conflicts = 0
+        agreements = 0
+        for mine, theirs in zip(previous.values, column.values):
+            if is_blank(mine) or is_blank(theirs):
+                continue
+            if mine == theirs:
+                agreements += 1
+            else:
+                conflicts += 1
+        both_empty = all(is_blank(v) for v in previous.values) and all(
+            is_blank(v) for v in column.values
+        )
+
+        if conflicts or not (agreements or both_empty):
+            kept.append(column)
+            continue
+
+        previous.values = [
+            theirs if is_blank(mine) else mine
+            for mine, theirs in zip(previous.values, column.values)
+        ]
+        merged += 1
+    return kept, merged
 
 
 def _analyse_block(
@@ -475,11 +540,17 @@ def _analyse_block(
     if last_data < first_data:
         return None, notes + ["Every row beneath the header looked like a summary row."]
 
-    columns, dropped = _build_columns(grid, header_row, first_data, last_data)
+    columns, dropped, merged = _build_columns(grid, header_row, first_data, last_data)
     if not columns:
         return None, notes + ["No usable columns after dropping empty ones."]
     if dropped:
         notes.append(f"Dropped {dropped} entirely empty column(s).")
+    if merged:
+        notes.append(
+            f"Folded {merged} duplicate column(s) back into one: the header was "
+            f"merged across columns, so the data repeated. Values from both "
+            f"sides were kept."
+        )
 
     table = DetectedTable(
         name=label,
@@ -588,7 +659,7 @@ def _looks_like_continuation(
 
 
 def _refresh_columns(sheet: RawSheet, table: DetectedTable) -> None:
-    columns, _ = _build_columns(
+    columns, _, _ = _build_columns(
         sheet.grid, table.header_row, table.first_data_row, table.last_data_row
     )
     by_index = {c.index: c for c in columns}

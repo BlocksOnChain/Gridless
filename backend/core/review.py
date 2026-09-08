@@ -16,9 +16,16 @@ between clicking and asking.
 from __future__ import annotations
 
 from commitdata.ddl import UnsafeIdentifier, safe_ident, unique_slug
-from core.models import DataType, InferredEntity, InferredField
+from core.models import (
+    DataType,
+    EntitySection,
+    InferredEntity,
+    InferredField,
+    SectionKind,
+)
 
 VALID_TYPES = {c for c, _ in DataType.choices}
+VALID_SECTION_KINDS = {c for c, _ in SectionKind.choices}
 
 
 class ReviewEditError(ValueError):
@@ -98,3 +105,37 @@ def set_primary_key(field: InferredField) -> None:
     field.is_primary_key = True
     field.user_confirmed = True
     field.save(update_fields=["is_primary_key", "user_confirmed"])
+
+
+def check_section_kind(kind: str) -> str:
+    wanted = (kind or "note").strip().lower()
+    if wanted not in VALID_SECTION_KINDS:
+        raise ReviewEditError(
+            f"{kind!r} is not a section kind. Use one of: "
+            f"{', '.join(sorted(VALID_SECTION_KINDS))}."
+        )
+    return wanted
+
+
+def add_section(
+    entity: InferredEntity, title: str, body: str, kind: str = "note"
+) -> EntitySection:
+    """Add a section under a table.
+
+    `created_by_user` is what protects it from re-analysis: the pipeline
+    replaces everything it inferred from the sheet, and nothing in the sheet
+    implies a section a person or the assistant wrote.
+    """
+    label = (title or "").strip()
+    text = (body or "").strip()
+    if not label and not text:
+        raise ReviewEditError("A section needs a title or some text.")
+    return EntitySection.objects.create(
+        entity=entity,
+        kind=check_section_kind(kind),
+        title=label,
+        body=text,
+        source_range="",
+        position=(entity.sections.count() or 0),
+        created_by_user=True,
+    )

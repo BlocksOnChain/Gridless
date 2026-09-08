@@ -132,6 +132,37 @@ use `core.deps.offload` instead, which gives each its own thread (and closes
 its database connection afterwards). `tests/test_concurrency.py` pins that,
 since the symptom is easy to misread as "the server is down".
 
+## Sections: what a table cannot hold
+
+A daily production report ends like this, merged across all nine columns and
+twenty rows:
+
+```
+AÇIKLAMALAR :
+*HAT 5 SABAH VARDİYASINDA BIÇAK ARIZASINDAN DOLAYI 2 KERE KAFAYA MAL SARDI...
+```
+
+That is the most human information on the sheet, and a table cannot hold it.
+The old continuation rule asked only "do these rows put something in the
+table's columns?" -- which a paragraph merged across the sheet does trivially --
+so twenty rows of prose were imported as data and a "Machine Capacity" column
+ended up with the same Turkish sentence in every cell. Information is not
+preserved by being stored in the wrong shape.
+
+`ingest/structure.py:classify_block` now recognises two kinds of non-table
+block before the table logic sees them: **prose** (a merged paragraph, or a lone
+long text cell, optionally introduced by AÇIKLAMALAR / NOTLAR / NOTES / REMARKS)
+and **totals** (an explicit TOPLAM / TOTAL label with every row too sparse to be
+data). They are stored as `EntitySection` rows and rendered under their table in
+the generated app. On the Merit report that is the difference between 75
+"records" and the 45 production rows that actually exist.
+
+Sections are also the first thing the assistant can *create*: `add_section`,
+`edit_section` and `remove_section` are review-chat tools, so the page can grow
+a piece of UI that nobody wrote a component for. Re-analysis rebuilds sections
+from the file, discarding hand-written ones -- the same contract as a renamed
+field.
+
 ## How /api/ask stays safe
 
 Two independent layers, neither trusted alone:

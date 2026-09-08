@@ -66,6 +66,9 @@ class AnalysedTable:
     raw_row_count: int
     columns: list[AnalysedColumn]
     notes: list[str] = field(default_factory=list)
+    #: Carried through from stage 1 unchanged: these blocks have no columns to
+    #: type, and the pipeline stores them against the entity.
+    sections: list = field(default_factory=list)
 
     @property
     def row_count(self) -> int:
@@ -113,6 +116,7 @@ def analyse_workbook(path: str | Path) -> list[AnalysedTable]:
                     header_score=detected.header_score,
                     raw_row_count=raw.n_rows,
                     columns=columns,
+                    sections=detected.sections,
                     notes=detected.notes
                     + [
                         f"Typed {len(columns)} column(s) over "

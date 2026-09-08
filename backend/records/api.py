@@ -63,6 +63,13 @@ class EntityMeta(msgspec.Struct):
     columns: list[ColumnMeta]
 
 
+class SectionMeta(msgspec.Struct):
+    id: int
+    kind: str
+    title: str
+    body: str
+
+
 class RecordPage(msgspec.Struct):
     entity: str
     table_slug: str
@@ -71,6 +78,11 @@ class RecordPage(msgspec.Struct):
     page: int
     page_size: int
     rows: list[dict]
+    #: What the sheet held besides rows -- notes, totals -- rendered under the
+    #: table. Part of this response rather than a second request: it is part of
+    #: the page, and a table that loses its AÇIKLAMALAR block on every render
+    #: would be a worse copy of the workbook than the workbook.
+    sections: list[SectionMeta]
 
 
 class RecordOut(msgspec.Struct):
@@ -98,9 +110,13 @@ def _quote_column(key: str) -> str:
 
 
 def _committed_entities(org: Organization):
-    return InferredEntity.objects.filter(
-        workbook__organization=org, workbook__status=WorkbookStatus.COMMITTED
-    ).select_related("workbook").prefetch_related("fields")
+    return (
+        InferredEntity.objects.filter(
+            workbook__organization=org, workbook__status=WorkbookStatus.COMMITTED
+        )
+        .select_related("workbook")
+        .prefetch_related("fields", "sections")
+    )
 
 
 def _resolve(org: Organization, slug: str) -> InferredEntity:
@@ -114,6 +130,13 @@ def _resolve(org: Organization, slug: str) -> InferredEntity:
         )
     safe_ident(entity.table_slug)  # belt and braces: it was safe at commit time too
     return entity
+
+
+def _sections(entity: InferredEntity) -> list[SectionMeta]:
+    return [
+        SectionMeta(id=s.pk, kind=s.kind, title=s.title, body=s.body)
+        for s in entity.sections.all()
+    ]
 
 
 def _columns(entity: InferredEntity) -> list[ColumnMeta]:
@@ -231,6 +254,7 @@ def _list_records(
     return RecordPage(
         entity=entity.name, table_slug=entity.table_slug, columns=columns,
         total=total, page=page, page_size=page_size, rows=rows,
+        sections=_sections(entity),
     )
 
 

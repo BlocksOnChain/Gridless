@@ -258,6 +258,16 @@ class FieldOut(msgspec.Struct):
     position: int
 
 
+class SectionOut(msgspec.Struct):
+    id: int
+    kind: str
+    title: str
+    body: str
+    source_range: str
+    position: int
+    created_by_user: bool
+
+
 class EntityOut(msgspec.Struct):
     id: int
     name: str
@@ -266,6 +276,9 @@ class EntityOut(msgspec.Struct):
     user_confirmed: bool
     sheet: SheetOut
     fields: list[FieldOut]
+    #: Blocks of the sheet that are not rows: notes, totals. Rendered under the
+    #: table in the generated app.
+    sections: list[SectionOut]
 
 
 class RelationshipOut(msgspec.Struct):
@@ -304,6 +317,14 @@ def _field_out(f) -> FieldOut:
     )
 
 
+def _section_out(s) -> SectionOut:
+    return SectionOut(
+        id=s.pk, kind=s.kind, title=s.title, body=s.body,
+        source_range=s.source_range, position=s.position,
+        created_by_user=s.created_by_user,
+    )
+
+
 def _entity_out(e) -> EntityOut:
     s = e.source_sheet
     return EntityOut(
@@ -314,6 +335,7 @@ def _entity_out(e) -> EntityOut:
             detected_range=s.detected_range, raw_row_count=s.raw_row_count, notes=s.notes,
         ),
         fields=[_field_out(f) for f in e.fields.all()],
+        sections=[_section_out(x) for x in e.sections.all()],
     )
 
 
@@ -343,7 +365,10 @@ def _proposal_out(org: Organization, workbook_id: int) -> ProposalOut:
     entities = (
         InferredEntity.objects.filter(workbook=workbook)
         .select_related("source_sheet")
-        .prefetch_related(Prefetch("fields", queryset=InferredField.objects.order_by("position", "id")))
+        .prefetch_related(
+            Prefetch("fields", queryset=InferredField.objects.order_by("position", "id")),
+            "sections",
+        )
         .order_by("id")
     )
     relationships = (
@@ -569,6 +594,98 @@ async def delete_field(field_id: int, x_org_id: OrgHeader = None) -> None:
     """Drop a column from the proposal. The spreadsheet file is untouched."""
     org = await resolve_org(x_org_id)
     await _delete_field(org, field_id)
+
+
+class SectionCreate(msgspec.Struct):
+    title: str
+    body: str
+    kind: str = "note"
+
+
+class SectionPatch(msgspec.Struct):
+    title: str | None = None
+    body: str | None = None
+    kind: str | None = None
+
+
+@sync_to_async
+def _add_section(org: Organization, entity_id: int, body: SectionCreate) -> SectionOut:
+    from core.models import InferredEntity
+    from core.review import ReviewEditError, add_section
+
+    entity = InferredEntity.objects.filter(
+        workbook__organization=org, pk=entity_id
+    ).first()
+    if entity is None:
+        raise NotFound(detail=f"Entity {entity_id} not found")
+    try:
+        section = add_section(entity, body.title, body.body, body.kind)
+    except ReviewEditError as exc:
+        raise BadRequest(detail=str(exc))
+    return _section_out(section)
+
+
+@api.post("/api/entities/{entity_id}/sections", status_code=201)
+async def add_section_endpoint(
+    entity_id: int, body: SectionCreate, x_org_id: OrgHeader = None
+) -> SectionOut:
+    """Add a section under a table -- a note, or anything the sheet could not hold."""
+    org = await resolve_org(x_org_id)
+    return await _add_section(org, entity_id, body)
+
+
+@sync_to_async
+def _patch_section(org: Organization, section_id: int, patch: SectionPatch) -> SectionOut:
+    from core.models import EntitySection
+    from core.review import ReviewEditError, check_section_kind
+
+    section = EntitySection.objects.filter(
+        entity__workbook__organization=org, pk=section_id
+    ).first()
+    if section is None:
+        raise NotFound(detail=f"Section {section_id} not found")
+
+    changed = []
+    if patch.title is not None:
+        section.title = patch.title.strip()
+        changed.append("title")
+    if patch.body is not None:
+        section.body = patch.body
+        changed.append("body")
+    if patch.kind is not None:
+        try:
+            section.kind = check_section_kind(patch.kind)
+        except ReviewEditError as exc:
+            raise BadRequest(detail=str(exc))
+        changed.append("kind")
+    if changed:
+        section.save(update_fields=changed)
+    return _section_out(section)
+
+
+@api.patch("/api/sections/{section_id}")
+async def patch_section(
+    section_id: int, patch: SectionPatch, x_org_id: OrgHeader = None
+) -> SectionOut:
+    org = await resolve_org(x_org_id)
+    return await _patch_section(org, section_id, patch)
+
+
+@sync_to_async
+def _delete_section(org: Organization, section_id: int) -> None:
+    from core.models import EntitySection
+
+    deleted, _ = EntitySection.objects.filter(
+        entity__workbook__organization=org, pk=section_id
+    ).delete()
+    if not deleted:
+        raise NotFound(detail=f"Section {section_id} not found")
+
+
+@api.delete("/api/sections/{section_id}", status_code=204)
+async def delete_section(section_id: int, x_org_id: OrgHeader = None) -> None:
+    org = await resolve_org(x_org_id)
+    await _delete_section(org, section_id)
 
 
 @sync_to_async

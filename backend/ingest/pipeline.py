@@ -258,13 +258,17 @@ def _persist_table(
 def _persist_sections(entity, table) -> int:
     """Store the sheet's non-table blocks against the entity they belong with.
 
-    Detected in stage 1 (`ingest.structure.classify_block`); rendered under the
-    table in the generated app. Re-analysis replaces them, like everything else
-    the pipeline infers -- except that a section a person or the assistant
-    created is kept, because nothing in the sheet can imply it.
+    Detected in stage 1 (`ingest.structure.classify_block`) and rendered under
+    the table in the generated app.
+
+    Re-analysis does not preserve sections a person or the assistant wrote --
+    `run_structure_and_types` deletes the workbook's entities and rebuilds them,
+    so a section goes the way a renamed field does. That is the existing
+    contract for everything the pipeline infers, and quietly making sections the
+    one exception would be a surprise in the other direction. `created_by_user`
+    is provenance for the review screen ("from A60:I80 in your sheet" versus
+    hand-written), not a preservation flag.
     """
-    EntitySection.objects.filter(entity=entity, created_by_user=False).delete()
-    kept = entity.sections.filter(created_by_user=True).count()
     for position, section in enumerate(getattr(table, "sections", []) or []):
         EntitySection.objects.create(
             entity=entity,
@@ -272,7 +276,7 @@ def _persist_sections(entity, table) -> int:
             title=section.title,
             body=section.body,
             source_range=section.source_range,
-            position=kept + position,
+            position=position,
         )
     return len(getattr(table, "sections", []) or [])
 
